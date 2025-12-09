@@ -1,33 +1,43 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+// You might need to import your splash or welcome screen to navigate there:
+import '../splash/splash_screen.dart'; // <--- ASSUMED TARGET
 
 class ProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: const Text("My Profile")
+        automaticallyImplyLeading: false,
+        title: const Text('Profile'),
       ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.person_pin, size: 80, color: Colors.blue),
-            const SizedBox(height: 20),
-            const Text("User Details Here", style: TextStyle(fontSize: 18)),
-            const SizedBox(height: 50),
+            const Text('User Profile Details Here'),
+            const SizedBox(height: 30),
 
-            // Logout Button
-            ElevatedButton.icon(
-              icon: const Icon(Icons.logout),
-              label: const Text("Log Out"),
-              onPressed: () {
-                // Call the service to sign out
-                AuthService().signOut();
-                // The SplashScreen listener handles the redirection to WelcomePage
+            // LOGOUT BUTTON IMPLEMENTATION
+            ElevatedButton(
+              onPressed: () async {
+                // 1. Call the logout method
+                await AuthService().logout();
+
+                // 2. Navigate back to the very first screen (Splash/Welcome)
+                // We use pushAndRemoveUntil to clear the entire navigation stack
+                // (MainNavigation, Home, Profile, etc.) so the user can't hit back.
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (context) => SplashScreen(), // <--- Navigate to your unauthenticated root
+                  ),
+                      (Route<dynamic> route) => false, // This ensures all previous routes are removed
+                );
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Log Out'),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red, // Use a distinguishing color
+                  minimumSize: const Size(200, 50)),
             ),
           ],
         ),
