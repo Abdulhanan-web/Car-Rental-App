@@ -1,7 +1,10 @@
 // lib/screens/main_navigation/home_page.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
 import '../../services/firestore_service.dart';
+import '../../services/local_car_service.dart';
 import '../../models/car_model.dart';
 import '../car/car_detail_page.dart';
 
@@ -12,6 +15,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final FirestoreService _firestoreService = FirestoreService();
+  final LocalCarService _localCarService = LocalCarService();
   final TextEditingController _searchController = TextEditingController();
   String _selectedCategory = 'All';
 
@@ -109,7 +113,6 @@ class _HomePageState extends State<HomePage> {
     ];
 
     return Container(
-      // Reduced bottom padding to 0 to pull the next section up
       padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,7 +129,7 @@ class _HomePageState extends State<HomePage> {
               crossAxisCount: 3,
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
-              childAspectRatio: 1.3, // Shorter boxes
+              childAspectRatio: 1.3,
             ),
             itemCount: categories.length,
             itemBuilder: (context, index) {
@@ -172,7 +175,6 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildWeekendSpecialBanner() {
     return Container(
-      // Reduced top margin to 8 to close the gap with Categories
       margin: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -224,25 +226,42 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildCarsList() {
     return StreamBuilder<List<CarModel>>(
-      stream: _firestoreService.getAllCars(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: Padding(
-            padding: EdgeInsets.all(20.0),
-            child: CircularProgressIndicator(),
-          ));
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text('No cars available'));
-        }
+      stream: _localCarService.getAllCars(),
+      builder: (context, localSnapshot) {
+        return StreamBuilder<List<CarModel>>(
+          stream: _firestoreService.getAllCars(),
+          builder: (context, firestoreSnapshot) {
+            List<CarModel> allCars = [];
+            
+            if (localSnapshot.hasData) {
+              allCars.addAll(localSnapshot.data!);
+            }
+            
+            if (firestoreSnapshot.hasData) {
+              allCars.addAll(firestoreSnapshot.data!);
+            }
 
-        final cars = snapshot.data!;
-        return ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: cars.length,
-          itemBuilder: (context, index) => _buildCarCard(cars[index]),
+            if (allCars.isEmpty && 
+                firestoreSnapshot.connectionState == ConnectionState.waiting && 
+                localSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: Padding(
+                padding: EdgeInsets.all(20.0),
+                child: CircularProgressIndicator(),
+              ));
+            }
+
+            if (allCars.isEmpty) {
+              return const Center(child: Text('No cars available'));
+            }
+
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: allCars.length,
+              itemBuilder: (context, index) => _buildCarCard(allCars[index]),
+            );
+          },
         );
       },
     );
@@ -260,7 +279,7 @@ class _HomePageState extends State<HomePage> {
             ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
               child: car.imageUrls.isNotEmpty
-                  ? Image.network(car.imageUrls[0], height: 160, width: double.infinity, fit: BoxFit.cover)
+                  ? _buildCarImage(car.imageUrls[0])
                   : Container(height: 160, color: Colors.grey[200], child: const Icon(Icons.directions_car, size: 40)),
             ),
             Padding(
@@ -275,13 +294,29 @@ class _HomePageState extends State<HomePage> {
                       Text(car.location, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                     ],
                   ),
-                  Text('\$${car.pricePerDay}/day', style: const TextStyle(color: Color(0xFF2145A1), fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('\$${car.pricePerDay.toStringAsFixed(0)}/day', style: const TextStyle(color: Color(0xFF2145A1), fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
               ),
             )
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCarImage(String url) {
+    if (kIsWeb || url.startsWith('http') || url.startsWith('blob:')) {
+      return Image.network(url, height: 160, width: double.infinity, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => _buildErrorPlaceholder());
+    } else {
+      return Image.file(File(url), height: 160, width: double.infinity, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => _buildErrorPlaceholder());
+    }
+  }
+
+  Widget _buildErrorPlaceholder() {
+    return Container(
+      height: 160,
+      color: Colors.grey[300],
+      child: const Icon(Icons.directions_car, size: 60),
     );
   }
 }

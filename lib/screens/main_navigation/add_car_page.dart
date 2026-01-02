@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../services/firestore_service.dart';
-import '../../services/storage_service.dart';
+import '../../services/local_car_service.dart';
 import '../../models/car_model.dart';
 
 class AddCarPage extends StatefulWidget {
@@ -23,7 +23,7 @@ class _AddCarPageState extends State<AddCarPage> {
   final _locationController = TextEditingController();
 
   final FirestoreService _firestoreService = FirestoreService();
-  final StorageService _storageService = StorageService();
+  final LocalCarService _localCarService = LocalCarService();
   final ImagePicker _picker = ImagePicker();
 
   List<File> _selectedImages = [];
@@ -74,10 +74,8 @@ class _AddCarPageState extends State<AddCarPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception('User not logged in');
 
-      List<String> imageUrls = await _storageService.uploadCarImages(
-        _selectedImages,
-        user.uid,
-      );
+      // Use local file paths instead of uploading to Firebase Storage
+      List<String> imageUrls = _selectedImages.map((file) => file.path).toList();
 
       final userDoc = await _firestoreService.getUserProfile(user.uid);
       final userName = userDoc?.name ?? 'Unknown';
@@ -97,19 +95,16 @@ class _AddCarPageState extends State<AddCarPage> {
         createdAt: DateTime.now(),
       );
 
-      String? error = await _firestoreService.addCar(car);
+      // Save to local storage service instead of Firestore
+      await _localCarService.addCar(car);
 
-      if (error == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Car added successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _clearForm();
-      } else {
-        throw Exception(error);
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Car added locally successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      _clearForm();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
@@ -199,6 +194,16 @@ class _AddCarPageState extends State<AddCarPage> {
               controller: _brandController,
               label: 'Car Model',
               hint: 'e.g., Toyota Camry',
+            ),
+            const SizedBox(height: 20),
+
+            _buildSectionTitle('Car Year'),
+            const SizedBox(height: 12),
+            _buildTextField(
+              controller: _yearController,
+              label: 'Year',
+              hint: 'e.g., 2022',
+              keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 20),
 
@@ -292,8 +297,13 @@ class _AddCarPageState extends State<AddCarPage> {
         ),
       ),
       validator: (value) {
-        if (value == null || value.isEmpty) {
+        if (value == null || value.trim().isEmpty) {
           return 'This field is required';
+        }
+        if (keyboardType == TextInputType.number) {
+          if (double.tryParse(value) == null) {
+            return 'Please enter a valid number';
+          }
         }
         return null;
       },

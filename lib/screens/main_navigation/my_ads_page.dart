@@ -2,7 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
 import '../../services/firestore_service.dart';
+import '../../services/local_car_service.dart';
 import '../../models/car_model.dart';
 import '../car/edit_car_page.dart';
 
@@ -13,6 +16,7 @@ class MyAdsPage extends StatefulWidget {
 
 class _MyAdsPageState extends State<MyAdsPage> {
   final FirestoreService _firestoreService = FirestoreService();
+  final LocalCarService _localCarService = LocalCarService();
 
   @override
   Widget build(BuildContext context) {
@@ -71,48 +75,59 @@ class _MyAdsPageState extends State<MyAdsPage> {
 
   Widget _buildCarsList(String userId) {
     return StreamBuilder<List<CarModel>>(
-      stream: _firestoreService.getUserCars(userId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+      stream: _localCarService.getUserCars(userId),
+      builder: (context, localSnapshot) {
+        return StreamBuilder<List<CarModel>>(
+          stream: _firestoreService.getUserCars(userId),
+          builder: (context, firestoreSnapshot) {
+            List<CarModel> userCars = [];
 
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
+            if (localSnapshot.hasData) {
+              userCars.addAll(localSnapshot.data!);
+            }
 
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.directions_car_outlined,
-                  size: 100,
-                  color: Colors.grey[400],
+            if (firestoreSnapshot.hasData) {
+              userCars.addAll(firestoreSnapshot.data!);
+            }
+
+            if (userCars.isEmpty &&
+                firestoreSnapshot.connectionState == ConnectionState.waiting &&
+                localSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (userCars.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.directions_car_outlined,
+                      size: 100,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No cars posted yet',
+                      style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tap + to add your first car',
+                      style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'No cars posted yet',
-                  style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Tap + to add your first car',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                ),
-              ],
-            ),
-          );
-        }
+              );
+            }
 
-        final cars = snapshot.data!;
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: cars.length,
-          itemBuilder: (context, index) {
-            return _buildCarCard(cars[index]);
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: userCars.length,
+              itemBuilder: (context, index) {
+                return _buildCarCard(userCars[index]);
+              },
+            );
           },
         );
       },
@@ -133,19 +148,7 @@ class _MyAdsPageState extends State<MyAdsPage> {
               ClipRRect(
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                 child: car.imageUrls.isNotEmpty
-                    ? Image.network(
-                  car.imageUrls[0],
-                  height: 160,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      height: 160,
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.directions_car, size: 60),
-                    );
-                  },
-                )
+                    ? _buildCarImage(car.imageUrls[0])
                     : Container(
                   height: 160,
                   color: Colors.grey[300],
@@ -294,6 +297,34 @@ class _MyAdsPageState extends State<MyAdsPage> {
     );
   }
 
+  Widget _buildCarImage(String url) {
+    if (kIsWeb || url.startsWith('http')) {
+      return Image.network(
+        url,
+        height: 160,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _buildErrorPlaceholder(),
+      );
+    } else {
+      return Image.file(
+        File(url),
+        height: 160,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _buildErrorPlaceholder(),
+      );
+    }
+  }
+
+  Widget _buildErrorPlaceholder() {
+    return Container(
+      height: 160,
+      color: Colors.grey[300],
+      child: const Icon(Icons.directions_car, size: 60),
+    );
+  }
+
   void _showDeleteDialog(CarModel car) {
     showDialog(
       context: context,
@@ -328,21 +359,29 @@ class _MyAdsPageState extends State<MyAdsPage> {
 
   Future<void> _deleteCar(CarModel car) async {
     try {
-      await _firestoreService.deleteCar(car.id);
+      if (int.tryParse(car.id) != null && car.id.length > 10) {
+        await _localCarService.deleteCar(car.id);
+      } else {
+        await _firestoreService.deleteCar(car.id);
+      }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Car deleted successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Car deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error deleting car: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting car: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 }

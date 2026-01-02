@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:io';
 import '../../models/car_model.dart';
 import '../../services/chat_service.dart';
 import '../chat/chat_detail_page.dart';
@@ -101,16 +102,20 @@ class _CarDetailPageState extends State<CarDetailPage> {
             },
             itemCount: widget.car.imageUrls.length,
             itemBuilder: (context, index) {
-              return Image.network(
-                widget.car.imageUrls[index],
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.error, size: 50),
-                  );
-                },
-              );
+              final url = widget.car.imageUrls[index];
+              if (url.startsWith('http')) {
+                return Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => _buildErrorIcon(),
+                );
+              } else {
+                return Image.file(
+                  File(url),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => _buildErrorIcon(),
+                );
+              }
             },
           ),
         ),
@@ -138,6 +143,13 @@ class _CarDetailPageState extends State<CarDetailPage> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildErrorIcon() {
+    return Container(
+      color: Colors.grey[300],
+      child: const Icon(Icons.error, size: 50),
     );
   }
 
@@ -273,7 +285,7 @@ class _CarDetailPageState extends State<CarDetailPage> {
                 radius: 25,
                 backgroundColor: Colors.blue[200],
                 child: Text(
-                  widget.car.ownerName[0].toUpperCase(),
+                  widget.car.ownerName.isNotEmpty ? widget.car.ownerName[0].toUpperCase() : 'U',
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
